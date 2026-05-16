@@ -6,13 +6,31 @@ import {load as cocoSSDLoad} from "@tensorflow-models/coco-ssd";
 import * as tf from "@tensorflow/tfjs";
 import {renderPredictions} from "@/utils/render-predictions";
 
+import { throttle } from "lodash";
+
 let detectInterval;
 
 const ObjectDetection = () => {
   const [isLoading, setIsLoading] = useState(true);
+  const [isSystemStarted, setIsSystemStarted] = useState(false);
 
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    // Initialize audio object
+    audioRef.current = new Audio("/pols-aagyi-pols.mp3");
+  }, []);
+
+  const playAlarm = useCallback(
+    throttle(() => {
+      if (audioRef.current && isSystemStarted) {
+        audioRef.current.play().catch((err) => console.error("Audio play failed:", err));
+      }
+    }, 2000),
+    [isSystemStarted]
+  );
 
   const runCoco = useCallback(async () => {
     setIsLoading(true);
@@ -48,10 +66,16 @@ const ObjectDetection = () => {
         0.6
       );
 
-      //   console.log(detectedObjects);
-
       const context = canvasRef.current.getContext("2d");
       renderPredictions(detectedObjects, context);
+
+      const isPersonDetected = detectedObjects.some(
+        (obj) => obj.class === "person"
+      );
+
+      if (isPersonDetected && isSystemStarted) {
+        playAlarm();
+      }
     }
   }
 
@@ -79,23 +103,58 @@ const ObjectDetection = () => {
     };
   }, [runCoco, showmyVideo]);
 
+  const handleStartSystem = () => {
+    setIsSystemStarted(true);
+    // Unlocking audio on mobile
+    if (audioRef.current) {
+      audioRef.current.muted = true;
+      audioRef.current.play().then(() => {
+        audioRef.current.pause();
+        audioRef.current.muted = false;
+      });
+    }
+  };
+
   return (
-    <div className="mt-8">
+    <div className="mt-8 flex flex-col items-center">
       {isLoading ? (
-        <div className="gradient-text">Loading AI Model...</div>
+        <div className="gradient-text text-xl font-semibold animate-pulse">
+          Loading AI Model...
+        </div>
       ) : (
-        <div className="relative flex justify-center items-center gradient p-1.5 rounded-md">
-          {/* webcam */}
-          <Webcam
-            ref={webcamRef}
-            className="rounded-md w-full lg:h-[720px]"
-            muted
-          />
-          {/* canvas */}
-          <canvas
-            ref={canvasRef}
-            className="absolute top-0 left-0 z-99999 w-full lg:h-[720px]"
-          />
+        <div className="flex flex-col items-center gap-6 w-full">
+          {!isSystemStarted && (
+            <button
+              onClick={handleStartSystem}
+              className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-full font-bold text-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 animate-bounce"
+            >
+              🚀 START ALARM SYSTEM
+            </button>
+          )}
+
+          {isSystemStarted && (
+            <div className="flex items-center gap-2 bg-green-500/20 text-green-400 px-4 py-2 rounded-full border border-green-500/30">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+              </span>
+              System Active & Sound Enabled
+            </div>
+          )}
+
+          <div className="relative flex justify-center items-center gradient p-1.5 rounded-2xl shadow-2xl overflow-hidden border border-white/10">
+            {/* webcam */}
+            <Webcam
+              ref={webcamRef}
+              className="rounded-xl w-full lg:h-[720px] object-cover"
+              muted
+            />
+            {/* canvas */}
+            <canvas
+              ref={canvasRef}
+              className="absolute top-0 left-0 z-99999 w-full lg:h-[720px]"
+            />
+          </div>
         </div>
       )}
     </div>

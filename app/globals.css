@@ -31,9 +31,12 @@ body {
     text-wrap: balance;
   }
   .gradient {
-    @apply bg-gradient-to-b from-white via-gray-300 to-gray-600;
+    @apply bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500;
   }
   .gradient-title {
-    @apply gradient text-transparent bg-clip-text;
+    @apply bg-gradient-to-r from-red-500 via-yellow-400 to-red-600 text-transparent bg-clip-text;
+  }
+  .gradient-text {
+    @apply bg-gradient-to-r from-gray-200 to-gray-500 text-transparent bg-clip-text;
   }
 }
