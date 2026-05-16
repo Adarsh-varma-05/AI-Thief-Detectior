@@ -14,6 +14,7 @@ const ObjectDetection = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSystemStarted, setIsSystemStarted] = useState(false);
   const [statusText, setStatusText] = useState("Initializing...");
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -21,15 +22,19 @@ const ObjectDetection = () => {
 
   const playAlarm = useCallback(
     throttle(() => {
-      if (audioRef.current && isSystemStarted) {
+      if (audioRef.current && isAudioUnlocked) {
         audioRef.current.currentTime = 0;
         audioRef.current.play().catch((err) => {
           console.error("Audio play failed:", err);
-          setStatusText("Audio Error: " + err.message);
         });
+        
+        // Vibrate phone for 500ms
+        if (navigator.vibrate) {
+          navigator.vibrate(500);
+        }
       }
     }, 2000),
-    [isSystemStarted]
+    [isAudioUnlocked]
   );
 
   const runCoco = useCallback(async () => {
@@ -39,7 +44,7 @@ const ObjectDetection = () => {
       await tf.ready();
       const net = await cocoSSDLoad({ base: "lite_mobilenet_v2" });
       setIsLoading(false);
-      setStatusText("System Ready");
+      setStatusText("Ready! Tap to Start Monitoring");
 
       const detectLoop = async () => {
         await runObjectDetection(net);
@@ -49,7 +54,7 @@ const ObjectDetection = () => {
     } catch (error) {
       console.error("Error loading model:", error);
       setIsLoading(false);
-      setStatusText("Error loading AI model");
+      setStatusText("Error: Check Camera Permissions");
     }
   }, []);
 
@@ -62,10 +67,11 @@ const ObjectDetection = () => {
       canvasRef.current.width = webcamRef.current.video.videoWidth;
       canvasRef.current.height = webcamRef.current.video.videoHeight;
 
+      // Reduced threshold to 0.4 for better detection on mobile
       const detectedObjects = await net.detect(
         webcamRef.current.video,
         undefined,
-        0.6
+        0.4
       );
 
       const context = canvasRef.current.getContext("2d");
@@ -76,18 +82,12 @@ const ObjectDetection = () => {
       );
 
       if (isPersonDetected) {
-        if (isSystemStarted) {
-          setStatusText("⚠️ PERSON DETECTED! ALARM ON");
+        setStatusText("⚠️ PERSON DETECTED!");
+        if (isAudioUnlocked) {
           playAlarm();
-        } else {
-          setStatusText("Person detected (System Off)");
         }
       } else {
-        if (isSystemStarted) {
-          setStatusText("Scanning... (System Active)");
-        } else {
-          setStatusText("System Idle");
-        }
+        setStatusText(isAudioUnlocked ? "Scanning..." : "System Idle (Tap Screen)");
       }
     }
   }
@@ -116,68 +116,63 @@ const ObjectDetection = () => {
     };
   }, [runCoco, showmyVideo]);
 
-  const handleStartSystem = () => {
+  const unlockAudio = () => {
+    setIsAudioUnlocked(true);
     setIsSystemStarted(true);
-    setStatusText("System Activated");
+    setStatusText("System Live & Sound Active");
     
-    // Explicitly unlock audio element on user click
+    // Unlock audio context
     if (audioRef.current) {
       audioRef.current.play().then(() => {
           audioRef.current.pause();
           audioRef.current.currentTime = 0;
-      }).catch(e => {
-          console.error("Unlock failed", e);
-          setStatusText("Click again to enable audio");
-      });
+      }).catch(e => console.log("Unlock failed", e));
     }
   };
 
   return (
-    <div className="mt-8 flex flex-col items-center">
+    <div className="mt-8 flex flex-col items-center w-full px-4">
       {/* Hidden Audio Element */}
       <audio ref={audioRef} src="/pols-aagyi-pols.mp3" preload="auto" />
+
+      {/* Tap Overlay to unlock audio on mobile */}
+      {!isAudioUnlocked && !isLoading && (
+        <div 
+          onClick={unlockAudio}
+          className="fixed inset-0 z-[100000] bg-black/60 flex flex-col justify-center items-center cursor-pointer backdrop-blur-sm"
+        >
+          <div className="bg-red-600 p-8 rounded-full animate-pulse shadow-2xl mb-4 border-4 border-white/20">
+            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/></svg>
+          </div>
+          <h2 className="text-white text-3xl font-bold tracking-tighter text-center px-6">TAP TO ENABLE ALARM</h2>
+          <p className="text-gray-300 mt-2 text-sm italic">Required for mobile audio playback</p>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="gradient-text text-xl font-semibold animate-pulse">
           {statusText}
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-6 w-full">
+        <div className="flex flex-col items-center gap-6 w-full max-w-4xl">
           <div className="flex flex-col items-center gap-2">
-            {!isSystemStarted ? (
-              <button
-                onClick={handleStartSystem}
-                className="bg-red-600 hover:bg-red-700 text-white px-10 py-5 rounded-full font-bold text-2xl shadow-xl transition-all transform hover:scale-105 active:scale-95 animate-bounce border-4 border-red-400"
-              >
-                🚨 START ALARM SYSTEM
-              </button>
-            ) : (
-              <div className="flex flex-col items-center gap-3">
-                <div className="flex items-center gap-2 bg-green-500/20 text-green-400 px-6 py-3 rounded-full border border-green-500/30 font-bold">
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                  </span>
-                  SYSTEM IS LIVE
-                </div>
-                <button 
-                  onClick={() => setIsSystemStarted(false)}
-                  className="text-gray-400 hover:text-white text-sm underline"
-                >
-                  Stop System
-                </button>
-              </div>
-            )}
+            <div className={`flex items-center gap-2 ${isAudioUnlocked ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'} px-6 py-3 rounded-full border border-current font-bold transition-colors shadow-lg`}>
+              <span className="relative flex h-3 w-3">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isAudioUnlocked ? 'bg-green-400' : 'bg-yellow-400'} opacity-75`}></span>
+                <span className={`relative inline-flex rounded-full h-3 w-3 ${isAudioUnlocked ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+              </span>
+              {isAudioUnlocked ? 'ALARM MONITORING LIVE' : 'WAITING FOR UNLOCK...'}
+            </div>
             
-            <p className={`mt-2 font-mono text-sm ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-bold' : 'text-gray-500'}`}>
-              Status: {statusText}
+            <p className={`mt-2 font-mono text-lg ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-extrabold scale-110' : 'text-gray-400'} transition-all`}>
+              {statusText}
             </p>
           </div>
 
-          <div className="relative flex justify-center items-center gradient p-1.5 rounded-3xl shadow-[0_0_50px_rgba(239,68,68,0.2)] overflow-hidden border border-white/10 max-w-4xl w-full">
+          <div className="relative flex justify-center items-center gradient p-1.5 rounded-3xl shadow-[0_0_80px_rgba(239,68,68,0.15)] overflow-hidden border border-white/10 w-full aspect-video lg:aspect-auto">
             <Webcam
               ref={webcamRef}
-              className="rounded-2xl w-full h-auto lg:h-[720px] object-cover"
+              className="rounded-2xl w-full h-full lg:h-[720px] object-cover"
               muted
             />
             <canvas
@@ -186,9 +181,9 @@ const ObjectDetection = () => {
             />
           </div>
           
-          <div className="text-gray-500 text-xs text-center max-w-md">
-            Note: Ensure your device is not on silent mode and volume is up. 
-            The system works best in well-lit environments.
+          <div className="text-gray-500 text-xs text-center flex flex-col gap-1">
+            <p>AI Model: Lite MobileNet V2 | Precision: High</p>
+            <p>Audio source: /pols-aagyi-pols.mp3</p>
           </div>
         </div>
       )}
