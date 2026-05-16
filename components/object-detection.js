@@ -10,30 +10,36 @@ import { throttle } from "lodash";
 let detectInterval;
 
 const ObjectDetection = () => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSystemStarted, setIsSystemStarted] = useState(false);
-  const [statusText, setStatusText] = useState("System Offline");
+  const [isLoading, setIsLoading] = useState(true);
+  const [statusText, setStatusText] = useState("Initializing System...");
   const [net, setNet] = useState(null);
 
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
 
+  const videoConstraints = {
+    width: 1280,
+    height: 720,
+    facingMode: "user",
+  };
+
+  // Function to play alarm
   const playAlarm = useCallback(
     throttle(() => {
-      if (audioRef.current && isSystemStarted) {
+      if (audioRef.current) {
         audioRef.current.volume = 1.0;
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(e => console.log("Audio Error", e));
+        audioRef.current.play().catch(e => console.log("Audio play failed. Tap screen once.", e));
         
         if (navigator.vibrate) {
           navigator.vibrate([500, 200, 500]);
         }
       }
     }, 2000),
-    [isSystemStarted]
+    []
   );
 
+  // Main Detection Logic
   const runObjectDetection = useCallback(async (model) => {
     if (
       canvasRef.current &&
@@ -63,45 +69,54 @@ const ObjectDetection = () => {
         setStatusText("Monitoring: No Person Found");
       }
     }
-  }, [isSystemStarted, playAlarm]);
+  }, [playAlarm]);
 
-  const startMonitoring = async () => {
-    setIsLoading(true);
-    setStatusText("Initializing AI & Camera...");
-    
-    // Unlock Audio Context
-    if (audioRef.current) {
-        audioRef.current.play().then(() => {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-        }).catch(e => console.log("Sound unlock error", e));
-    }
-
-    try {
-      await tf.ready();
-      const loadedNet = await cocoSSDLoad({ base: "lite_mobilenet_v2" });
-      setNet(loadedNet);
-      setIsSystemStarted(true);
-      setIsLoading(false);
-      setStatusText("System Active");
-
-      const detectLoop = async () => {
-        await runObjectDetection(loadedNet);
-        detectInterval = requestAnimationFrame(detectLoop);
-      };
-      detectLoop();
-    } catch (error) {
-      console.error("Setup Error:", error);
-      setIsLoading(false);
-      setStatusText("Error: Check Camera Access");
-    }
-  };
-
+  // Auto-start system on mount
   useEffect(() => {
-    return () => {
-      if (detectInterval) {
-        cancelAnimationFrame(detectInterval);
+    const initSystem = async () => {
+      try {
+        await tf.ready();
+        const loadedNet = await cocoSSDLoad({ base: "lite_mobilenet_v2" });
+        setNet(loadedNet);
+        setIsLoading(false);
+        setStatusText("Waiting for camera...");
+
+        const detectLoop = async () => {
+          await runObjectDetection(loadedNet);
+          detectInterval = requestAnimationFrame(detectLoop);
+        };
+        detectLoop();
+      } catch (error) {
+        console.error("Init Error:", error);
+        setStatusText("Error: Failed to start AI");
       }
+    };
+
+    initSystem();
+
+    // Cleanup
+    return () => {
+      if (detectInterval) cancelAnimationFrame(detectInterval);
+    };
+  }, [runObjectDetection]);
+
+  // Silent Audio Unlock (Requirement for Mobile/Chrome)
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.play().then(() => {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        }).catch(() => {});
+        window.removeEventListener("click", unlockAudio);
+        window.removeEventListener("touchstart", unlockAudio);
+      }
+    };
+    window.addEventListener("click", unlockAudio);
+    window.addEventListener("touchstart", unlockAudio);
+    return () => {
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("touchstart", unlockAudio);
     };
   }, []);
 
@@ -114,65 +129,52 @@ const ObjectDetection = () => {
         playsInline
       />
 
-      {!isSystemStarted && (
-        <div className="flex flex-col items-center gap-6 py-12">
-            <div className="bg-red-600/10 p-10 rounded-full border-4 border-red-600/20 animate-pulse">
-                <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-            </div>
-            <h2 className="text-3xl font-black text-center max-w-md">PROTECTION SYSTEM IS OFFLINE</h2>
-            <p className="text-gray-400 text-center -mt-4">One-click to arm the security alarm</p>
-            <button
-                disabled={isLoading}
-                onClick={startMonitoring}
-                className={`${isLoading ? 'bg-gray-700' : 'bg-red-600 hover:bg-red-700'} text-white px-12 py-6 rounded-full font-black text-2xl shadow-[0_0_40px_rgba(220,38,38,0.4)] transition-all transform hover:scale-110 active:scale-95 border-b-8 border-red-900`}
-            >
-                {isLoading ? 'ARMING SYSTEM...' : '🛡️ ACTIVATE ALARM'}
-            </button>
-        </div>
-      )}
-
-      {isSystemStarted && (
-        <div className="flex flex-col items-center gap-6 w-full max-w-4xl">
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-4 bg-green-500/20 text-green-400 px-8 py-4 rounded-full border-2 border-green-500/50 font-black tracking-wide shadow-lg">
-              <span className="relative flex h-4 w-4">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
-              </span>
-              SYSTEM ARMED & AUTOMATIC
-            </div>
-            
-            <p className={`mt-2 font-mono text-xl ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-black scale-110' : 'text-gray-400'} transition-all`}>
-              {statusText}
-            </p>
-          </div>
-
-          <div className="relative flex justify-center items-center p-1 bg-gray-900 rounded-3xl shadow-[0_0_100px_rgba(220,38,38,0.1)] overflow-hidden border border-white/10 w-full">
-            <div className="absolute inset-0 gradient opacity-10"></div>
-            
-            <div className="relative w-full aspect-video rounded-2xl overflow-hidden z-10 bg-black">
-              <Webcam
-                ref={webcamRef}
-                className="w-full h-full object-cover"
-                muted
-              />
-              <canvas
-                ref={canvasRef}
-                className="absolute top-0 left-0 z-20 w-full h-full"
-              />
-            </div>
+      <div className="flex flex-col items-center gap-4 w-full max-w-4xl">
+        {/* Status Header */}
+        <div className="flex flex-col items-center gap-2">
+          <div className={`flex items-center gap-4 ${isLoading ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'} px-8 py-4 rounded-full border-2 ${isLoading ? 'border-yellow-500/50' : 'border-green-500/50'} font-black tracking-wide shadow-lg transition-all`}>
+            <span className="relative flex h-4 w-4">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isLoading ? 'bg-yellow-400' : 'bg-green-400'} opacity-75`}></span>
+              <span className={`relative inline-flex rounded-full h-4 w-4 ${isLoading ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
+            </span>
+            {isLoading ? "SYSTEM LOADING..." : "SYSTEM ARMED & ACTIVE"}
           </div>
           
-          <button 
-            onClick={() => window.location.reload()}
-            className="text-gray-500 hover:text-white text-sm underline mt-4"
-          >
-            Deactivate & Reset
-          </button>
+          <p className={`mt-2 font-mono text-xl ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-black scale-110' : 'text-gray-400'} transition-all`}>
+            {statusText}
+          </p>
+          {!isLoading && <p className="text-xs text-gray-500 opacity-50 animate-pulse">Tap screen once to ensure sound is enabled</p>}
         </div>
-      )}
+
+        {/* Camera Feed */}
+        <div className="relative flex justify-center items-center p-1 bg-gray-900 rounded-3xl shadow-[0_0_100px_rgba(220,38,38,0.1)] overflow-hidden border border-white/10 w-full">
+          <div className="absolute inset-0 gradient opacity-10"></div>
+          
+          <div className="relative w-full aspect-video rounded-2xl overflow-hidden z-10 bg-black">
+            <Webcam
+              ref={webcamRef}
+              className="w-full h-full object-cover"
+              muted
+              videoConstraints={videoConstraints}
+              onUserMedia={() => setStatusText("System Active")}
+              onUserMediaError={(err) => {
+                console.error("Webcam Error:", err);
+                setStatusText("❌ Error: Camera Access Denied");
+              }}
+            />
+            <canvas
+              ref={canvasRef}
+              className="absolute top-0 left-0 z-20 w-full h-full"
+            />
+          </div>
+        </div>
+        
+        <p className="text-gray-600 text-xs mt-4 italic">Automatically detecting 'Person' in frame</p>
+      </div>
     </div>
   );
 };
 
 export default ObjectDetection;
+
+
