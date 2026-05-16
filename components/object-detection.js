@@ -21,34 +21,43 @@ const ObjectDetection = () => {
   const audioRef = useRef(null);
 
   const videoConstraints = {
-    width: 1280,
-    height: 720,
+    width: 640,
+    height: 480,
     facingMode: facingMode,
   };
 
-  // Memoize throttled alarm function to avoid ESLint warnings and performance issues
-  const playAlarm = useMemo(
-    () =>
-      throttle(() => {
-        if (audioRef.current && isSystemStarted) {
-          audioRef.current.currentTime = 0;
-          audioRef.current.volume = 1.0;
-          
-          const playPromise = audioRef.current.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(e => {
-              console.log("Audio play failed. Need user interaction.", e);
-              setStatusText("⚠️ TAP SCREEN TO ENABLE AUDIO");
-            });
+  // Improved Alarm Logic with Cooldown
+  const alarmTimeoutRef = useRef(null);
+
+  const triggerAlarm = useCallback((isActive) => {
+    if (!audioRef.current || !isSystemStarted) return;
+
+    if (isActive) {
+      // Clear any pending stop-timeout
+      if (alarmTimeoutRef.current) clearTimeout(alarmTimeoutRef.current);
+      
+      setStatusText("⚠️ INTRUDER DETECTED!");
+      if (audioRef.current.paused) {
+        audioRef.current.play().catch(e => console.log("Play failed", e));
+      }
+      
+      if (navigator.vibrate) {
+        navigator.vibrate([300, 100, 300]);
+      }
+    } else {
+      // Don't stop immediately, wait 1 second to avoid stuttering
+      if (!alarmTimeoutRef.current) {
+        alarmTimeoutRef.current = setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
           }
-          
-          if (navigator.vibrate) {
-            navigator.vibrate([500, 200, 500]);
-          }
-        }
-      }, 2000),
-    [isSystemStarted]
-  );
+          setStatusText("Monitoring: Active");
+          alarmTimeoutRef.current = null;
+        }, 1500);
+      }
+    }
+  }, [isSystemStarted]);
 
   // Main Detection Logic
   const runObjectDetection = useCallback(async (model) => {
@@ -57,14 +66,11 @@ const ObjectDetection = () => {
       webcamRef.current !== null &&
       webcamRef.current.video?.readyState === 4
     ) {
-      canvasRef.current.width = webcamRef.current.video.videoWidth;
-      canvasRef.current.height = webcamRef.current.video.videoHeight;
+      const video = webcamRef.current.video;
+      canvasRef.current.width = video.videoWidth;
+      canvasRef.current.height = video.videoHeight;
 
-      const detectedObjects = await model.detect(
-        webcamRef.current.video,
-        undefined,
-        0.4
-      );
+      const detectedObjects = await model.detect(video, undefined, 0.4);
 
       const context = canvasRef.current.getContext("2d");
       renderPredictions(detectedObjects, context);
@@ -73,14 +79,9 @@ const ObjectDetection = () => {
         (obj) => obj.class === "person"
       );
 
-      if (isPersonDetected) {
-        setStatusText("⚠️ INTRUDER DETECTED!");
-        playAlarm();
-      } else {
-        setStatusText("Monitoring: No Person Found");
-      }
+      triggerAlarm(isPersonDetected);
     }
-  }, [playAlarm]);
+  }, [triggerAlarm]);
 
   // Auto-start system on mount
   useEffect(() => {
@@ -95,8 +96,11 @@ const ObjectDetection = () => {
         const detectLoop = async () => {
           if (isSystemStarted) {
             await runObjectDetection(loadedNet);
+            // Run every 100ms for better performance on mobile
+            detectInterval = setTimeout(detectLoop, 100);
+          } else {
+            detectInterval = setTimeout(detectLoop, 500);
           }
-          detectInterval = requestAnimationFrame(detectLoop);
         };
         detectLoop();
       } catch (error) {
@@ -109,7 +113,8 @@ const ObjectDetection = () => {
 
     // Cleanup
     return () => {
-      if (detectInterval) cancelAnimationFrame(detectInterval);
+      if (detectInterval) clearTimeout(detectInterval);
+      if (alarmTimeoutRef.current) clearTimeout(alarmTimeoutRef.current);
     };
   }, [runObjectDetection, isSystemStarted]);
 
@@ -161,7 +166,7 @@ const ObjectDetection = () => {
         ref={audioRef} 
         src="/pols-aagyi-pols.mp3" 
         preload="auto" 
-        playsInline
+        loop
       />
 
       <div className="flex flex-col items-center gap-4 w-full max-w-4xl">
