@@ -13,6 +13,8 @@ const ObjectDetection = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [statusText, setStatusText] = useState("Initializing System...");
   const [net, setNet] = useState(null);
+  const [isSystemStarted, setIsSystemStarted] = useState(false);
+  const [facingMode, setFacingMode] = useState("user");
 
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -21,23 +23,31 @@ const ObjectDetection = () => {
   const videoConstraints = {
     width: 1280,
     height: 720,
-    facingMode: "user",
+    facingMode: facingMode,
   };
 
   // Memoize throttled alarm function to avoid ESLint warnings and performance issues
   const playAlarm = useMemo(
     () =>
       throttle(() => {
-        if (audioRef.current) {
+        if (audioRef.current && isSystemStarted) {
+          audioRef.current.currentTime = 0;
           audioRef.current.volume = 1.0;
-          audioRef.current.play().catch(e => console.log("Audio play failed. Tap screen once.", e));
+          
+          const playPromise = audioRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(e => {
+              console.log("Audio play failed. Need user interaction.", e);
+              setStatusText("⚠️ TAP SCREEN TO ENABLE AUDIO");
+            });
+          }
           
           if (navigator.vibrate) {
             navigator.vibrate([500, 200, 500]);
           }
         }
       }, 2000),
-    []
+    [isSystemStarted]
   );
 
   // Main Detection Logic
@@ -80,10 +90,12 @@ const ObjectDetection = () => {
         const loadedNet = await cocoSSDLoad({ base: "lite_mobilenet_v2" });
         setNet(loadedNet);
         setIsLoading(false);
-        setStatusText("Waiting for camera...");
+        setStatusText("System Ready. Arm to Start.");
 
         const detectLoop = async () => {
-          await runObjectDetection(loadedNet);
+          if (isSystemStarted) {
+            await runObjectDetection(loadedNet);
+          }
           detectInterval = requestAnimationFrame(detectLoop);
         };
         detectLoop();
@@ -99,18 +111,40 @@ const ObjectDetection = () => {
     return () => {
       if (detectInterval) cancelAnimationFrame(detectInterval);
     };
-  }, [runObjectDetection]);
+  }, [runObjectDetection, isSystemStarted]);
+
+  const handleArmSystem = () => {
+    if (audioRef.current) {
+      // Prime the audio for mobile
+      audioRef.current.play().then(() => {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        setIsSystemStarted(true);
+        setStatusText("Monitoring: Active");
+      }).catch(e => {
+        console.error("Audio unlock failed:", e);
+        setIsSystemStarted(true);
+        setStatusText("⚠️ Sound might be blocked");
+      });
+    } else {
+      setIsSystemStarted(true);
+    }
+    
+    if (navigator.vibrate) {
+      navigator.vibrate(200);
+    }
+  };
+
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === "user" ? "environment" : "user");
+    setStatusText("Switching Camera...");
+  };
 
   // Silent Audio Unlock (Requirement for Mobile/Chrome)
   useEffect(() => {
     const unlockAudio = () => {
-      if (audioRef.current) {
-        audioRef.current.play().then(() => {
-          audioRef.current.pause();
-          audioRef.current.currentTime = 0;
-        }).catch(() => {});
-        window.removeEventListener("click", unlockAudio);
-        window.removeEventListener("touchstart", unlockAudio);
+      if (!isSystemStarted && audioRef.current) {
+        handleArmSystem();
       }
     };
     window.addEventListener("click", unlockAudio);
@@ -119,7 +153,7 @@ const ObjectDetection = () => {
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("touchstart", unlockAudio);
     };
-  }, []);
+  }, [isSystemStarted]);
 
   return (
     <div className="mt-8 flex flex-col items-center w-full px-4 text-white">
@@ -133,18 +167,33 @@ const ObjectDetection = () => {
       <div className="flex flex-col items-center gap-4 w-full max-w-4xl">
         {/* Status Header */}
         <div className="flex flex-col items-center gap-2">
-          <div className={`flex items-center gap-4 ${isLoading ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'} px-8 py-4 rounded-full border-2 ${isLoading ? 'border-yellow-500/50' : 'border-green-500/50'} font-black tracking-wide shadow-lg transition-all`}>
+          <div className={`flex items-center gap-4 ${isLoading ? 'bg-yellow-500/20 text-yellow-400' : isSystemStarted ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'} px-8 py-4 rounded-full border-2 ${isLoading ? 'border-yellow-500/50' : isSystemStarted ? 'border-green-500/50' : 'border-red-500/50'} font-black tracking-wide shadow-lg transition-all`}>
             <span className="relative flex h-4 w-4">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isLoading ? 'bg-yellow-400' : 'bg-green-400'} opacity-75`}></span>
-              <span className={`relative inline-flex rounded-full h-4 w-4 ${isLoading ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isLoading ? 'bg-yellow-400' : isSystemStarted ? 'bg-green-400' : 'bg-red-400'} opacity-75`}></span>
+              <span className={`relative inline-flex rounded-full h-4 w-4 ${isLoading ? 'bg-yellow-500' : isSystemStarted ? 'bg-green-500' : 'bg-red-500'}`}></span>
             </span>
-            {isLoading ? "SYSTEM LOADING..." : "SYSTEM ARMED & ACTIVE"}
+            {isLoading ? "SYSTEM LOADING..." : isSystemStarted ? "SYSTEM ARMED & ACTIVE" : "SYSTEM DISARMED"}
           </div>
           
-          <p className={`mt-2 font-mono text-xl ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-black scale-110' : 'text-gray-400'} transition-all`}>
+          <p className={`mt-2 font-mono text-xl ${statusText.includes('⚠️') || statusText.includes('INTRUDER') ? 'text-red-500 animate-pulse font-black scale-110' : 'text-gray-400'} transition-all text-center`}>
             {statusText}
           </p>
-          {!isLoading && <p className="text-xs text-gray-500 opacity-50 animate-pulse">Tap screen once to ensure sound is enabled</p>}
+          {!isLoading && !isSystemStarted && (
+            <button 
+              onClick={handleArmSystem}
+              className="mt-4 bg-red-600 hover:bg-red-700 text-white font-black py-4 px-10 rounded-2xl shadow-[0_0_30px_rgba(220,38,38,0.4)] transition-all transform hover:scale-105 active:scale-95 animate-bounce"
+            >
+              🚀 ARM SYSTEM (ENABLE SOUND)
+            </button>
+          )}
+          {isSystemStarted && (
+            <button 
+              onClick={toggleCamera}
+              className="mt-2 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-2 rounded-lg border border-white/10 transition-all"
+            >
+              🔄 Switch to {facingMode === "user" ? "Back" : "Front"} Camera
+            </button>
+          )}
         </div>
 
         {/* Camera Feed */}
