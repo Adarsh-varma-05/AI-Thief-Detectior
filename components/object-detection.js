@@ -5,7 +5,6 @@ import Webcam from "react-webcam";
 import {load as cocoSSDLoad} from "@tensorflow-models/coco-ssd";
 import * as tf from "@tensorflow/tfjs";
 import {renderPredictions} from "@/utils/render-predictions";
-
 import { throttle } from "lodash";
 
 let detectInterval;
@@ -13,7 +12,7 @@ let detectInterval;
 const ObjectDetection = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSystemStarted, setIsSystemStarted] = useState(false);
-  const [statusText, setStatusText] = useState("Initializing...");
+  const [statusText, setStatusText] = useState("Initializing AI...");
   const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
   const webcamRef = useRef(null);
@@ -29,7 +28,6 @@ const ObjectDetection = () => {
           console.error("Audio play failed:", err);
         });
         
-        // Vibrate phone pattern: 500ms on, 200ms off, 500ms on
         if (navigator.vibrate) {
           navigator.vibrate([500, 200, 500]);
         }
@@ -38,7 +36,83 @@ const ObjectDetection = () => {
     [isAudioUnlocked]
   );
 
-  // ... (runCoco and runObjectDetection remain same)
+  const runCoco = useCallback(async () => {
+    setIsLoading(true);
+    setStatusText("Loading AI Model...");
+    try {
+      await tf.ready();
+      const net = await cocoSSDLoad({ base: "lite_mobilenet_v2" });
+      setIsLoading(false);
+      setStatusText("Ready! Tap to Start Monitoring");
+
+      const detectLoop = async () => {
+        await runObjectDetection(net);
+        detectInterval = requestAnimationFrame(detectLoop);
+      };
+      detectLoop();
+    } catch (error) {
+      console.error("Error loading model:", error);
+      setIsLoading(false);
+      setStatusText("Error: Check Camera Permissions");
+    }
+  }, []);
+
+  async function runObjectDetection(net) {
+    if (
+      canvasRef.current &&
+      webcamRef.current !== null &&
+      webcamRef.current.video?.readyState === 4
+    ) {
+      canvasRef.current.width = webcamRef.current.video.videoWidth;
+      canvasRef.current.height = webcamRef.current.video.videoHeight;
+
+      const detectedObjects = await net.detect(
+        webcamRef.current.video,
+        undefined,
+        0.4
+      );
+
+      const context = canvasRef.current.getContext("2d");
+      renderPredictions(detectedObjects, context);
+
+      const isPersonDetected = detectedObjects.some(
+        (obj) => obj.class === "person"
+      );
+
+      if (isPersonDetected) {
+        setStatusText("⚠️ PERSON DETECTED!");
+        if (isAudioUnlocked) {
+          playAlarm();
+        }
+      } else {
+        setStatusText(isAudioUnlocked ? "Scanning..." : "System Idle (Tap Screen)");
+      }
+    }
+  }
+
+  const showmyVideo = useCallback(() => {
+    if (
+      webcamRef.current !== null &&
+      webcamRef.current.video?.readyState === 4
+    ) {
+      const myVideoWidth = webcamRef.current.video.videoWidth;
+      const myVideoHeight = webcamRef.current.video.videoHeight;
+
+      webcamRef.current.video.width = myVideoWidth;
+      webcamRef.current.video.height = myVideoHeight;
+    }
+  }, []);
+
+  useEffect(() => {
+    runCoco();
+    showmyVideo();
+
+    return () => {
+      if (detectInterval) {
+        cancelAnimationFrame(detectInterval);
+      }
+    };
+  }, [runCoco, showmyVideo]);
 
   const unlockAudio = () => {
     setIsAudioUnlocked(true);
@@ -62,8 +136,7 @@ const ObjectDetection = () => {
   };
 
   return (
-    <div className="mt-8 flex flex-col items-center w-full px-4">
-      {/* Hidden Audio Element with mobile specific attributes */}
+    <div className="mt-8 flex flex-col items-center w-full px-4 text-white">
       <audio 
         ref={audioRef} 
         src="/pols-aagyi-pols.mp3" 
@@ -71,7 +144,6 @@ const ObjectDetection = () => {
         playsInline
       />
 
-      {/* Tap Overlay to unlock audio on mobile */}
       {!isAudioUnlocked && !isLoading && (
         <div 
           onClick={unlockAudio}
@@ -86,7 +158,7 @@ const ObjectDetection = () => {
       )}
 
       {isLoading ? (
-        <div className="gradient-text text-xl font-semibold animate-pulse">
+        <div className="gradient-text text-2xl font-bold animate-pulse">
           {statusText}
         </div>
       ) : (
@@ -100,15 +172,15 @@ const ObjectDetection = () => {
               {isAudioUnlocked ? 'SYSTEM ACTIVE' : 'WAITING FOR UNLOCK'}
             </div>
             
-            <p className={`mt-2 font-mono text-xl ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-black scale-110' : 'text-gray-400'} transition-all`}>
+            <p className={`mt-2 font-mono text-xl ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-black scale-110' : 'text-gray-400'} transition-all text-center`}>
               {statusText}
             </p>
           </div>
 
-          <div className="relative flex justify-center items-center p-1 bg-gray-900 rounded-3xl shadow-2xl overflow-hidden border border-white/10 w-full max-w-4xl">
+          <div className="relative flex justify-center items-center p-1 bg-gray-900 rounded-3xl shadow-2xl overflow-hidden border border-white/10 w-full">
             <div className="absolute inset-0 gradient opacity-20"></div>
             
-            <div className="relative w-full h-full rounded-2xl overflow-hidden z-10 bg-black">
+            <div className="relative w-full aspect-video rounded-2xl overflow-hidden z-10 bg-black">
               <Webcam
                 ref={webcamRef}
                 className="w-full h-full object-cover"
