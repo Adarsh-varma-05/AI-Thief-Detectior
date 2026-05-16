@@ -1,6 +1,6 @@
 "use client";
 
-import React, {useEffect, useRef, useState, useCallback} from "react";
+import React, {useEffect, useRef, useState, useCallback, useMemo} from "react";
 import Webcam from "react-webcam";
 import {load as cocoSSDLoad} from "@tensorflow-models/coco-ssd";
 import * as tf from "@tensorflow/tfjs";
@@ -24,18 +24,19 @@ const ObjectDetection = () => {
     facingMode: "user",
   };
 
-  // Function to play alarm
-  const playAlarm = useCallback(
-    throttle(() => {
-      if (audioRef.current) {
-        audioRef.current.volume = 1.0;
-        audioRef.current.play().catch(e => console.log("Audio play failed. Tap screen once.", e));
-        
-        if (navigator.vibrate) {
-          navigator.vibrate([500, 200, 500]);
+  // Memoize throttled alarm function to avoid ESLint warnings and performance issues
+  const playAlarm = useMemo(
+    () =>
+      throttle(() => {
+        if (audioRef.current) {
+          audioRef.current.volume = 1.0;
+          audioRef.current.play().catch(e => console.log("Audio play failed. Tap screen once.", e));
+          
+          if (navigator.vibrate) {
+            navigator.vibrate([500, 200, 500]);
+          }
         }
-      }
-    }, 2000),
+      }, 2000),
     []
   );
 
@@ -169,12 +170,13 @@ const ObjectDetection = () => {
           </div>
         </div>
         
-        <p className="text-gray-600 text-xs mt-4 italic">Automatically detecting 'Person' in frame</p>
+        <p className="text-gray-600 text-xs mt-4 italic">Automatically detecting &apos;Person&apos; in frame</p>
       </div>
     </div>
   );
 };
 
 export default ObjectDetection;
+
 
 
