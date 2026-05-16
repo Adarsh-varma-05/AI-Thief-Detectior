@@ -13,20 +13,20 @@ let detectInterval;
 const ObjectDetection = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSystemStarted, setIsSystemStarted] = useState(false);
+  const [statusText, setStatusText] = useState("Initializing...");
 
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
 
-  useEffect(() => {
-    // Initialize audio object
-    audioRef.current = new Audio("/pols-aagyi-pols.mp3");
-  }, []);
-
   const playAlarm = useCallback(
     throttle(() => {
       if (audioRef.current && isSystemStarted) {
-        audioRef.current.play().catch((err) => console.error("Audio play failed:", err));
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch((err) => {
+          console.error("Audio play failed:", err);
+          setStatusText("Audio Error: " + err.message);
+        });
       }
     }, 2000),
     [isSystemStarted]
@@ -34,10 +34,12 @@ const ObjectDetection = () => {
 
   const runCoco = useCallback(async () => {
     setIsLoading(true);
+    setStatusText("Loading AI Model...");
     try {
       await tf.ready();
       const net = await cocoSSDLoad({ base: "lite_mobilenet_v2" });
       setIsLoading(false);
+      setStatusText("System Ready");
 
       const detectLoop = async () => {
         await runObjectDetection(net);
@@ -47,6 +49,7 @@ const ObjectDetection = () => {
     } catch (error) {
       console.error("Error loading model:", error);
       setIsLoading(false);
+      setStatusText("Error loading AI model");
     }
   }, []);
 
@@ -59,7 +62,6 @@ const ObjectDetection = () => {
       canvasRef.current.width = webcamRef.current.video.videoWidth;
       canvasRef.current.height = webcamRef.current.video.videoHeight;
 
-      // find detected objects
       const detectedObjects = await net.detect(
         webcamRef.current.video,
         undefined,
@@ -73,8 +75,19 @@ const ObjectDetection = () => {
         (obj) => obj.class === "person"
       );
 
-      if (isPersonDetected && isSystemStarted) {
-        playAlarm();
+      if (isPersonDetected) {
+        if (isSystemStarted) {
+          setStatusText("⚠️ PERSON DETECTED! ALARM ON");
+          playAlarm();
+        } else {
+          setStatusText("Person detected (System Off)");
+        }
+      } else {
+        if (isSystemStarted) {
+          setStatusText("Scanning... (System Active)");
+        } else {
+          setStatusText("System Idle");
+        }
       }
     }
   }
@@ -105,55 +118,77 @@ const ObjectDetection = () => {
 
   const handleStartSystem = () => {
     setIsSystemStarted(true);
-    // Unlocking audio on mobile
+    setStatusText("System Activated");
+    
+    // Explicitly unlock audio element on user click
     if (audioRef.current) {
-      audioRef.current.muted = true;
       audioRef.current.play().then(() => {
-        audioRef.current.pause();
-        audioRef.current.muted = false;
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+      }).catch(e => {
+          console.error("Unlock failed", e);
+          setStatusText("Click again to enable audio");
       });
     }
   };
 
   return (
     <div className="mt-8 flex flex-col items-center">
+      {/* Hidden Audio Element */}
+      <audio ref={audioRef} src="/pols-aagyi-pols.mp3" preload="auto" />
+
       {isLoading ? (
         <div className="gradient-text text-xl font-semibold animate-pulse">
-          Loading AI Model...
+          {statusText}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-6 w-full">
-          {!isSystemStarted && (
-            <button
-              onClick={handleStartSystem}
-              className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-full font-bold text-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 animate-bounce"
-            >
-              🚀 START ALARM SYSTEM
-            </button>
-          )}
+          <div className="flex flex-col items-center gap-2">
+            {!isSystemStarted ? (
+              <button
+                onClick={handleStartSystem}
+                className="bg-red-600 hover:bg-red-700 text-white px-10 py-5 rounded-full font-bold text-2xl shadow-xl transition-all transform hover:scale-105 active:scale-95 animate-bounce border-4 border-red-400"
+              >
+                🚨 START ALARM SYSTEM
+              </button>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <div className="flex items-center gap-2 bg-green-500/20 text-green-400 px-6 py-3 rounded-full border border-green-500/30 font-bold">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                  </span>
+                  SYSTEM IS LIVE
+                </div>
+                <button 
+                  onClick={() => setIsSystemStarted(false)}
+                  className="text-gray-400 hover:text-white text-sm underline"
+                >
+                  Stop System
+                </button>
+              </div>
+            )}
+            
+            <p className={`mt-2 font-mono text-sm ${statusText.includes('⚠️') ? 'text-red-500 animate-pulse font-bold' : 'text-gray-500'}`}>
+              Status: {statusText}
+            </p>
+          </div>
 
-          {isSystemStarted && (
-            <div className="flex items-center gap-2 bg-green-500/20 text-green-400 px-4 py-2 rounded-full border border-green-500/30">
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-              </span>
-              System Active & Sound Enabled
-            </div>
-          )}
-
-          <div className="relative flex justify-center items-center gradient p-1.5 rounded-2xl shadow-2xl overflow-hidden border border-white/10">
-            {/* webcam */}
+          <div className="relative flex justify-center items-center gradient p-1.5 rounded-3xl shadow-[0_0_50px_rgba(239,68,68,0.2)] overflow-hidden border border-white/10 max-w-4xl w-full">
             <Webcam
               ref={webcamRef}
-              className="rounded-xl w-full lg:h-[720px] object-cover"
+              className="rounded-2xl w-full h-auto lg:h-[720px] object-cover"
               muted
             />
-            {/* canvas */}
             <canvas
               ref={canvasRef}
-              className="absolute top-0 left-0 z-99999 w-full lg:h-[720px]"
+              className="absolute top-0 left-0 z-99999 w-full h-full"
             />
+          </div>
+          
+          <div className="text-gray-500 text-xs text-center max-w-md">
+            Note: Ensure your device is not on silent mode and volume is up. 
+            The system works best in well-lit environments.
           </div>
         </div>
       )}
