@@ -112,7 +112,8 @@ const ObjectDetection = () => {
         const loadedNet = await cocoSSDLoad({ base: "lite_mobilenet_v2" });
         setNet(loadedNet);
         setIsLoading(false);
-        setStatusText("System Ready. Arm to Start.");
+        setIsSystemStarted(true);
+        setStatusText("Monitoring: Active");
       } catch (error) {
         console.error("AI Model Initialization Error:", error);
         setStatusText("❌ Error: Failed to start AI Model");
@@ -259,31 +260,13 @@ const ObjectDetection = () => {
           </p>
 
           <div className="flex flex-wrap gap-4 justify-center mt-2">
-            {!isLoading && !isSystemStarted && (
+            {!isLoading && (
               <button
-                onClick={handleArmSystem}
-                className="mt-2 bg-red-600 hover:bg-red-700 text-white font-black py-4 px-10 rounded-2xl shadow-[0_0_30px_rgba(220,38,38,0.4)] transition-all transform hover:scale-105 active:scale-95 animate-bounce"
+                onClick={toggleCamera}
+                className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-6 py-3 rounded-xl border border-white/10 transition-all font-bold"
               >
-                🚀 ARM SYSTEM (ENABLE SOUND)
+                🔄 Switch Camera
               </button>
-            )}
-
-            {isSystemStarted && (
-              <>
-                <button
-                  onClick={handleDisarmSystem}
-                  className="bg-gray-800 hover:bg-gray-700 border border-red-500/40 text-red-400 font-bold py-3 px-8 rounded-xl shadow-md transition-all transform hover:scale-105 active:scale-95"
-                >
-                  🛑 DISARM SYSTEM
-                </button>
-
-                <button
-                  onClick={toggleCamera}
-                  className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-6 py-3 rounded-xl border border-white/10 transition-all font-bold"
-                >
-                  🔄 Switch Camera
-                </button>
-              </>
             )}
           </div>
         </div>
