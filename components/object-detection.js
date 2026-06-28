@@ -229,7 +229,7 @@ const ObjectDetection = () => {
 
   return (
     <div className="mt-8 flex flex-col items-center w-full px-4 text-white">
-      <audio ref={audioRef} src="/alarm_audio.mp3" preload="auto" loop />
+      <audio ref={audioRef} src="/alarm_audio.mp3?v=2" preload="auto" loop />
 
       <div className="flex flex-col items-center gap-4 w-full max-w-4xl">
         {/* Status Header */}
