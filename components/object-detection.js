@@ -151,82 +151,37 @@ const ObjectDetection = () => {
     };
   }, [isSystemStarted, net, runObjectDetection]);
 
-  const handleArmSystem = () => {
-    if (audioRef.current) {
-      // Prime/Unlock the audio context for mobile and desktop browsers
-      audioRef.current
-        .play()
-        .then(() => {
-          audioRef.current.pause();
-          audioRef.current.currentTime = 0;
-          setIsSystemStarted(true);
-          setStatusText("Monitoring: Active");
-        })
-        .catch((e) => {
-          console.error("Audio unlock failed:", e);
-          setIsSystemStarted(true);
-          setStatusText("⚠️ Sound might be blocked");
-        });
-    } else {
-      setIsSystemStarted(true);
-      setStatusText("Monitoring: Active");
-    }
-
-    if (navigator.vibrate) {
-      navigator.vibrate(200);
-    }
-  };
-
-  const handleDisarmSystem = () => {
-    setIsSystemStarted(false);
-    setStatusText("System Ready. Arm to Start.");
-
-    // Stop alarm immediately
-    if (alarmTimeoutRef.current) {
-      clearTimeout(alarmTimeoutRef.current);
-      alarmTimeoutRef.current = null;
-    }
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-    isAlarmPlayingRef.current = false;
-
-    // Clear drawings from canvas
-    if (canvasRef.current) {
-      const context = canvasRef.current.getContext("2d");
-      context.clearRect(
-        0,
-        0,
-        canvasRef.current.width,
-        canvasRef.current.height,
-      );
-    }
-
-    if (navigator.vibrate) {
-      navigator.vibrate(100);
-    }
-  };
-
   const toggleCamera = () => {
     setFacingMode((prev) => (prev === "user" ? "environment" : "user"));
     setStatusText("Switching Camera...");
   };
 
-  // Silent Audio Unlock (Requirement for Mobile/Chrome on first interaction)
+  // Silent Audio Unlock (Requirement for Mobile/Safari/Chrome on first interaction)
   useEffect(() => {
+    let unlocked = false;
     const unlockAudio = () => {
-      if (!isSystemStarted && audioRef.current) {
-        handleArmSystem();
+      if (unlocked) return;
+      // If audio is paused and not currently meant to be playing an alarm
+      if (audioRef.current && audioRef.current.paused && !isAlarmPlayingRef.current) {
+        audioRef.current.play().then(() => {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+          unlocked = true;
+          console.log("Audio context unlocked for mobile!");
+        }).catch((e) => {
+          console.error("Audio unlock failed, requires user interaction:", e);
+        });
       }
     };
-    window.addEventListener("click", unlockAudio);
-    window.addEventListener("touchstart", unlockAudio);
+    
+    window.addEventListener("click", unlockAudio, { once: false });
+    window.addEventListener("touchstart", unlockAudio, { once: false });
+    
     return () => {
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("touchstart", unlockAudio);
     };
-  }, [isSystemStarted]);
+  }, []);
 
   return (
     <div className="mt-8 flex flex-col items-center w-full px-4 text-white">
